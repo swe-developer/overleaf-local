@@ -1,5 +1,8 @@
 name: Build LaTeX PDF
 
+permissions:
+  contents: write
+
 on:
   push:
     branches:
@@ -9,29 +12,28 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      REPO_PAT: ${{ secrets.REPO_PAT || '' }}
 
     steps:
-      # Checkout your repo
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
 
-      # Install LaTeX
       - name: Install TeX Live
         run: |
           sudo apt-get update
           sudo apt-get install -y texlive-full
 
-      # Get short git hash
       - name: Get Git commit hash
-        id: vars
         run: echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-      # Replace the version macro with Git hash
       - name: Update version in main.tex
         run: |
           sed -i "s/\\\\newcommand{\\\\gitversion}{Unknown}/\\\\newcommand{\\\\gitversion}{${GIT_HASH}}/" main.tex
 
-      # Compile LaTeX document
       - name: Compile LaTeX document
         run: |
           pdflatex -interaction=nonstopmode main.tex
@@ -39,20 +41,31 @@ jobs:
           pdflatex -interaction=nonstopmode main.tex
           pdflatex -interaction=nonstopmode main.tex
 
-      # Upload the PDF as a workflow artifact
-      - name: Upload PDF
+      - name: Upload PDF artifact
         uses: actions/upload-artifact@v4
         with:
           name: Compiled-PDF
           path: main.pdf
 
-      # Optionally commit the PDF back to the repo
-      - name: Commit PDF to repo
+      - name: Commit & push PDF (GITHUB_TOKEN or PAT fallback)
         if: success()
+        env:
+          GIT_HASH: ${{ env.GIT_HASH }}
+          REPO_PAT: ${{ secrets.REPO_PAT || '' }}
         run: |
           git config user.name "swe-developer"
           git config user.email "anna.developer2354@gmail.com"
-          git add main.pdf
+          mkdir -p builds
+          mv -f main.pdf builds/document_${GIT_HASH}.pdf
+          git add builds/document_${GIT_HASH}.pdf
           git commit -m "Auto-build PDF for commit ${GIT_HASH}" || echo "No changes to commit"
-          git push
+
+          if [ -n "${REPO_PAT}" ]; then
+            echo "Using PAT to push"
+            git remote set-url origin https://x-access-token:${REPO_PAT}@github.com/${{ github.repository }}.git
+            git push origin HEAD:main
+          else
+            echo "Using GITHUB_TOKEN to push"
+            git push origin HEAD:main || echo "Push failed with GITHUB_TOKEN"
+          fi
 
