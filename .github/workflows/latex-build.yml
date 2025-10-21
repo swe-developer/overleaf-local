@@ -1,0 +1,58 @@
+name: Build LaTeX PDF
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout your repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Install LaTeX
+      - name: Install TeX Live
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y texlive-full
+
+      # Get short git hash
+      - name: Get Git commit hash
+        id: vars
+        run: echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      # Replace the version macro with Git hash
+      - name: Update version in main.tex
+        run: |
+          sed -i "s/\\\\newcommand{\\\\gitversion}{Unknown}/\\\\newcommand{\\\\gitversion}{${GIT_HASH}}/" main.tex
+
+      # Compile LaTeX document
+      - name: Compile LaTeX document
+        run: |
+          pdflatex -interaction=nonstopmode main.tex
+          bibtex main || true
+          pdflatex -interaction=nonstopmode main.tex
+          pdflatex -interaction=nonstopmode main.tex
+
+      # Upload the PDF as a workflow artifact
+      - name: Upload PDF
+        uses: actions/upload-artifact@v4
+        with:
+          name: Compiled-PDF
+          path: main.pdf
+
+      # Optionally commit the PDF back to the repo
+      - name: Commit PDF to repo
+        if: success()
+        run: |
+          git config user.name "swe-developer"
+          git config user.email "anna.developer2354@gmail.com"
+          git add main.pdf
+          git commit -m "Auto-build PDF for commit ${GIT_HASH}" || echo "No changes to commit"
+          git push
+
